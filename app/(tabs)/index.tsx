@@ -14,7 +14,6 @@ import {
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import DeviceInfo from "react-native-device-info";
 import * as Notifications from "expo-notifications";
-import Constants from "expo-constants";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as TaskManager from "expo-task-manager";
 import * as BackgroundFetch from "expo-background-fetch";
@@ -24,9 +23,8 @@ import { ThemeContext } from "../ThemeContext";
 import * as IntentLauncher from "expo-intent-launcher";
 
 const BATTERY_TASK = "BATTERY_TASK";
-const GAS_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzMtX13fxV82HtPWu9q5WT3IPEJ28cj-VJzEWT44WJr8U9k4deOb12ep9K2Pwm5Lw5CEA/exec"; // replace with your GAS Web App URL
 
-// 🔧 Background task
+// 🔧 Background task (runs periodically in background)
 TaskManager.defineTask(BATTERY_TASK, async () => {
   try {
     const charging = (await DeviceInfo.isBatteryCharging()) ?? false;
@@ -37,7 +35,7 @@ TaskManager.defineTask(BATTERY_TASK, async () => {
     const lastNotified = await AsyncStorage.getItem("HIGH_TEMP_NOTIFIED");
     const lastCharging = await AsyncStorage.getItem("LAST_CHARGING_STATE");
 
-    // Charger connect/disconnect
+    // 🔔 Charger connect/disconnect (background)
     if (lastCharging !== null) {
       const prev = lastCharging === "true";
       if (prev !== charging) {
@@ -45,7 +43,7 @@ TaskManager.defineTask(BATTERY_TASK, async () => {
           content: {
             title: charging ? "🔌 Charger Connected" : "⚡ Charger Disconnected",
             body: charging
-              ? `Your device is now charging. Current approx temp: ${tempApprox.toFixed(1)}°C`
+              ? "Your device is now charging."
               : "Your device stopped charging.",
           },
           trigger: null,
@@ -54,7 +52,7 @@ TaskManager.defineTask(BATTERY_TASK, async () => {
     }
     await AsyncStorage.setItem("LAST_CHARGING_STATE", charging.toString());
 
-    // High temp alert
+    // 🔔 High temp alert
     if (charging && tempApprox >= 45 && lastNotified !== todayStr) {
       await Notifications.scheduleNotificationAsync({
         content: {
@@ -74,46 +72,6 @@ TaskManager.defineTask(BATTERY_TASK, async () => {
     return BackgroundFetch.BackgroundFetchResult.Failed;
   }
 });
-
-// 📲 Register for push notifications and send token to GAS
-async function registerForPushNotificationsAsync() {
-  if (Platform.OS === "android") {
-    await Notifications.setNotificationChannelAsync("default", {
-      name: "default",
-      importance: Notifications.AndroidImportance.MAX,
-      vibrationPattern: [0, 250, 250, 250],
-      lightColor: "#FF231F7C",
-      sound: "default",
-    });
-  }
-
-  const { status: existingStatus } = await Notifications.getPermissionsAsync();
-  let finalStatus = existingStatus;
-  if (existingStatus !== "granted") {
-    const { status } = await Notifications.requestPermissionsAsync();
-    finalStatus = status;
-  }
-  if (finalStatus !== "granted") {
-    console.log("Push notification permission not granted");
-    return null;
-  }
-
-  const projectId = Constants?.expoConfig?.extra?.eas?.projectId ?? Constants?.easConfig?.projectId;
-  const token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
-  console.log("Expo Push Token:", token);
-
-  try {
-    await fetch(GAS_WEBHOOK_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token }),
-    });
-  } catch (e) {
-    console.log("Failed to send token to GAS:", e);
-  }
-
-  return token;
-}
 
 export default function Index() {
   const theme = useContext(ThemeContext);
@@ -152,7 +110,7 @@ export default function Index() {
 
       if (lastDate === todayStr && lastTimestampStr) {
         const lastTimestamp = parseInt(lastTimestampStr, 10);
-        const elapsed = (now - lastTimestamp) / 3600_000;
+        const elapsed = (now - lastTimestamp) / 3600_000; // hrs
         accumulated += elapsed;
       } else {
         accumulated = 0;
@@ -186,6 +144,7 @@ export default function Index() {
       const temp =
         25 + (cpuLoad / 100) * 20 + (1 - level) * 10 + deviceInfo.uptime * 0.5;
 
+      // 🌍 Get public IP
       let ip = "DEVICE_IP";
       try {
         const res = await fetch("https://api.ipify.org?format=json");
@@ -210,7 +169,7 @@ export default function Index() {
 
       setDeviceInfo(updatedInfo);
 
-      // 📊 Battery history
+      // 📊 Store battery history
       try {
         const historyRaw = await AsyncStorage.getItem("BATTERY_STATS_HISTORY");
         let history = historyRaw ? JSON.parse(historyRaw) : [];
@@ -228,7 +187,7 @@ export default function Index() {
         console.log("Error saving history:", err);
       }
 
-      // 🔔 Foreground temp notification
+      // 🔔 High temp notification (foreground check)
       if (charging && temp >= 45) {
         const todayStr = new Date().toISOString().split("T")[0];
         const lastNotified = await AsyncStorage.getItem("HIGH_TEMP_NOTIFIED");
@@ -265,7 +224,7 @@ export default function Index() {
     return () => clearTimeout(timer);
   }, []);
 
-  // 🔔 Instant charger events
+  // 🔔 Instant charger connect/disconnect (foreground)
   useEffect(() => {
     const eventEmitter = new NativeEventEmitter(NativeModules.DeviceInfo);
     const subscription = eventEmitter.addListener(
@@ -297,22 +256,33 @@ export default function Index() {
     return () => subscription.remove();
   }, []);
 
-  // 🔧 Background fetch + Push registration
+  // 🔧 Background fetch setup
   useEffect(() => {
     Notifications.requestPermissionsAsync();
 
     (async () => {
       try {
         await BackgroundFetch.registerTaskAsync(BATTERY_TASK, {
-          minimumInterval: 5 * 60,
+          minimumInterval: 5 * 60, // every 5 minutes
           stopOnTerminate: false,
           startOnBoot: true,
         });
-      } catch (e) {
-        console.log("Background fetch registration failed:", e);
-      }
 
-      await registerForPushNotificationsAsync();
+        // ⏰ Hourly reminder notification
+        await Notifications.cancelAllScheduledNotificationsAsync(); // clear old
+       await Notifications.scheduleNotificationAsync({
+  content: {
+    title: "⏰ Hourly Reminder",
+    body: "Open the app to continue monitoring battery & uptime.",
+  },
+  trigger: {
+    seconds: 3600,
+    repeats: true,
+  } as Notifications.TimeIntervalTriggerInput, // ✅ cast to the correct type
+});
+      } catch (e) {
+        console.log("Background fetch / notification registration failed:", e);
+      }
     })();
   }, []);
 
