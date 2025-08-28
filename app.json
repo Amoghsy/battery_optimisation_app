@@ -1,0 +1,58 @@
+{
+  "expo": {
+    "name": "Coolbatt",
+    "slug": "battery_optimisation_app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/coolicon.png",
+    "scheme": "myapp",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "package": "com.externref.battery_optimisation_app",
+      "permissions": [
+        "READ_PHONE_STATE",
+        "RECEIVE_BOOT_COMPLETED",
+        "ACCESS_NOTIFICATIONS"
+      ]
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/coolicon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#ffffff"
+        }
+      ],
+      
+      "expo-sqlite"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "37b8cb15-98c3-4bee-86ef-55f551812fa2"
+      }
+    },
+    "owner": "amgsy05"
+  }
+}
